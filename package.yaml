@@ -1,10 +1,10 @@
 name:                gpxTool
 version:             0.1.0.0
-github:              "Trav/gpxTool"
+github:              "waltont8/gpxTool"
 license:             BSD3
-author:              "Trav"
+author:              "Travis Walton"
 maintainer:          "spam@example.com"
-copyright:           "(c) 2019 Trav"
+copyright:           "(c) 2019 waltont8"
 
 extra-source-files:
 - README.md
@@ -17,7 +17,7 @@ extra-source-files:
 # To avoid duplicated efforts in documentation and dealing with the
 # complications of embedding Haddock markup inside cabal files, it is
 # common to point users to the README.md file.
-description:         Please see the README on GitHub at <https://github.com/Trav/gpxTool#readme>
+description:         Please see the README on GitHub at <https://github.com/waltont8/gpxTool#readme>
 
 dependencies:
 - base >= 4.7 && < 5

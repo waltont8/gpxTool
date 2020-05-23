@@ -4,9 +4,14 @@ module Lib
 
 import Data.Time          -- For the UTCTime type
 import Data.Time.ISO8601  -- Parse the datetime format in gpx files
+import Data.Time.Clock
+import System.Time.Utils (renderSecs)
+
 import Gpx
 
+renderS = renderSecs . round :: NominalDiffTime -> String
+
 someFunc = do
-            pts <- getTrackPoints "activity.gpx"
-            putStrLn $ show $ time $ head pts
-            putStrLn $ show $ secondsSince ( time $ head pts) (time $ head $ reverse $ pts)
+            route <- getRoute "activity.gpx"
+            putStrLn $ show $ totalDistance route
+            putStrLn $ renderS $ totalTime route

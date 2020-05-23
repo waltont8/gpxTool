@@ -1,8 +1,9 @@
 {-# LANGUAGE Arrows, NoMonomorphismRestriction #-}
 
 module Gpx
-    ( getTrackPoints
+    ( getRoute
      ,TrackPoint (..)
+     ,Route (..)
      ,secondsSince
     ) where
 
@@ -25,6 +26,13 @@ data TrackPoint = TrackPoint
    ,elevation :: Float
    ,time :: UTCTime
   } deriving (Eq, Show)
+
+data Route = Route
+  {
+      trackPoints :: [TrackPoint]
+      ,totalDistance :: Float
+      ,totalTime :: NominalDiffTime
+  }
 
 
 getTrackpoints = atTag "trkpt" >>>
@@ -54,11 +62,43 @@ getGPX filename = do
     []  -> error "Unable to parse gpx data."
     otherwise -> return result
 
-secondsSince :: UTCTime -> UTCTime -> (Integer, Int)
-secondsSince t0 t1 = (i, round $ d * 1000)
-   where (i, d) = properFraction $ diffUTCTime t1 t0
+secondsSince :: UTCTime -> UTCTime -> NominalDiffTime
+secondsSince t0 t1 =  diffUTCTime t1 t0
 
-getTrackPoints :: String -> IO [TrackPoint]
-getTrackPoints fileName = do
+{------------------------------------------------------------------------------------------------------}
+{- https://rosettacode.org/wiki/Haversine_formula?source=post_page---------------------------#Haskell -}
+-- The haversine of an angle.
+haversine :: Float -> Float
+haversine = (^ 2) . sin . (/ 2)
+ 
+-- The approximate distance, in kilometers, between two points on Earth.
+-- The latitude and longtitude are assumed to be in degrees.
+earthDist :: (Float, Float) -> (Float, Float) -> Float
+earthDist = distDeg 6371
+  where
+    distDeg radius p1 p2 = distRad radius (deg2rad p1) (deg2rad p2)
+    distRad radius (lat1, lng1) (lat2, lng2) =
+      (2 * radius) *
+      asin
+        (min
+           1.0
+           (sqrt $
+            haversine (lat2 - lat1) +
+            ((cos lat1 * cos lat2) * haversine (lng2 - lng1))))
+    deg2rad = d2r *** d2r
+      where
+        d2r = (/ 180) . (pi *)
+{------------------------------------------------------------------------------------------------------}
+
+routeDistance :: [TrackPoint] -> Float
+routeDistance (h:n:xs) = earthDist (latitude h, longitude h) (latitude n, longitude n) + routeDistance (n:xs)
+routeDistance (h:[]) = 0
+
+routeTime :: [TrackPoint] -> NominalDiffTime
+routeTime p = secondsSince (time $ head p) (time $ last p)
+
+getRoute :: String -> IO Route
+getRoute fileName = do
             pts <- getGPX fileName
-            return pts
+            return $ Route pts (routeDistance pts) (routeTime pts)
+            
