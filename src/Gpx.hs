@@ -4,7 +4,9 @@ module Gpx
     ( getRoute
      ,TrackPoint (..)
      ,Route (..)
+     ,Result
      ,secondsSince
+     ,fastestNk
     ) where
 
 import Text.XML.HXT.Core  -- The XML parser
@@ -27,13 +29,24 @@ data TrackPoint = TrackPoint
    ,time :: UTCTime
   } deriving (Eq, Show)
 
+type Distance = Float
+
+type Result = (Distance, NominalDiffTime)
+
+runfinity = (1000, 3600000)
+
+lessTime :: Result -> Result -> Bool
+lessTime (_,t1) (_,t2) = t1 < t2
+
+lessDistance :: Result -> Result -> Bool
+lessDistance (d1,_) (d2,_) = d1 < d2
+
 data Route = Route
   {
       trackPoints :: [TrackPoint]
-      ,totalDistance :: Float
+      ,totalDistance :: Distance
       ,totalTime :: NominalDiffTime
   }
-
 
 getTrackpoints = atTag "trkpt" >>>
   proc x -> do
@@ -89,8 +102,30 @@ earthDist = distDeg 6371
       where
         d2r = (/ 180) . (pi *)
 {------------------------------------------------------------------------------------------------------}
+pointDistance :: TrackPoint -> TrackPoint -> Distance
+pointDistance a b = earthDist (latitude a, longitude a) (latitude b, longitude b)
 
-routeDistance :: [TrackPoint] -> Float
+timeToNk :: Float -> Result -> TrackPoint -> [TrackPoint] -> Result
+timeToNk n (d,t) point (h:xs) = if (newDistance > n) 
+                                  then (newDistance, newTime)
+                                else timeToNk n (newDistance, newTime) h xs
+                                  where
+                                    newDistance = d + (pointDistance point h)
+                                    newTime = t + (secondsSince (time point) (time h))
+timeToNk _ _ _ [] = runfinity
+
+-- This is super inefficient. Expand to find multiple distances at once and backtrack.
+fastestNk :: Float -> [TrackPoint] -> Result
+fastestNk n (h:xs) = if current `lessTime` bestOfRest
+                     then current
+                     else bestOfRest               
+                      where
+                        current = timeToNk n (0,0) h xs
+                        bestOfRest = fastestNk n xs
+fastestNk _ [] = runfinity
+
+
+routeDistance :: [TrackPoint] -> Distance
 routeDistance (h:n:xs) = earthDist (latitude h, longitude h) (latitude n, longitude n) + routeDistance (n:xs)
 routeDistance (h:[]) = 0
 
