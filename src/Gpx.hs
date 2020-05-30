@@ -4,7 +4,7 @@ module Gpx
     ( getRoute
      ,TrackPoint (..)
      ,Route (..)
-     ,Result
+     ,Section
      ,secondsSince
      ,fastestNk
     ) where
@@ -12,6 +12,8 @@ module Gpx
 import Text.XML.HXT.Core  -- The XML parser
 import Data.Time          -- For the UTCTime type
 import Data.Time.ISO8601  -- Parse the datetime format in gpx files
+
+import Debug.Trace as D
 
 -- Make the XML code a bit more readable
 parseXML doc = readString [ withValidate no
@@ -31,14 +33,17 @@ data TrackPoint = TrackPoint
 
 type Distance = Float
 
-type Result = (Distance, NominalDiffTime)
+type Section = (Distance, NominalDiffTime)
+
+makeSection :: TrackPoint -> TrackPoint -> Section
+makeSection a b = ((pointDistance a b), (secondsSince (time a) (time b) ))
 
 runfinity = (1000, 3600000)
 
-lessTime :: Result -> Result -> Bool
+lessTime :: Section -> Section -> Bool
 lessTime (_,t1) (_,t2) = t1 < t2
 
-lessDistance :: Result -> Result -> Bool
+lessDistance :: Section -> Section -> Bool
 lessDistance (d1,_) (d2,_) = d1 < d2
 
 data Route = Route
@@ -105,24 +110,32 @@ earthDist = distDeg 6371
 pointDistance :: TrackPoint -> TrackPoint -> Distance
 pointDistance a b = earthDist (latitude a, longitude a) (latitude b, longitude b)
 
-timeToNk :: Float -> Result -> TrackPoint -> [TrackPoint] -> Result
-timeToNk n (d,t) point (h:xs) = if (newDistance > n) 
-                                  then (newDistance, newTime)
-                                else timeToNk n (newDistance, newTime) h xs
-                                  where
-                                    newDistance = d + (pointDistance point h)
-                                    newTime = t + (secondsSince (time point) (time h))
-timeToNk _ _ _ [] = runfinity
+-- Implement a sliding window over route sections using recursion
+findNkInner :: Float -> [Section] -> Section -> Section -> [Section] -> Section
+findNkInner _ [] _ best _ = best
+findNkInner n secs (totalDist, totalTime) best store = if totalDist < n
+                                                        -- grab something from secs and move it to store updating everything
+                                                         then findNkInner n 
+                                                                          (tail secs) 
+                                                                          (addToTotal (totalDist, totalTime) (head secs)) 
+                                                                          best
+                                                                          ((head secs):store)
+                                                       else  --remove something from the store and throw it away, removing it from everything
+                                                           findNkInner n 
+                                                                      secs 
+                                                                      ( removeFromTotal (totalDist, totalTime) (last store) )
+                                                                      (theBest best (totalDist, totalTime)) 
+                                                                      (init store)
+                                                          where
+                                                            addToTotal (d,t) (sd, st) = (d+sd, t+st)
+                                                            theBest (d,t) (sd, st) = if (t<st) then (d,t) else (sd,st)
+                                                            removeFromTotal (d, t) (rd, rt) = (d-rd, t-rt)
 
--- This is super inefficient. Expand to find multiple distances at once and backtrack.
-fastestNk :: Float -> [TrackPoint] -> Result
-fastestNk n (h:xs) = if current `lessTime` bestOfRest
-                     then current
-                     else bestOfRest               
-                      where
-                        current = timeToNk n (0,0) h xs
-                        bestOfRest = fastestNk n xs
-fastestNk _ [] = runfinity
+-- Work on the sections between points
+fastestNk :: Float -> [TrackPoint] -> Section
+fastestNk n tp = findNkInner n sections (0,0) runfinity []
+                  where
+                    sections = zipWith makeSection tp (tail tp)
 
 
 routeDistance :: [TrackPoint] -> Distance
