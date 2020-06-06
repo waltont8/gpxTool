@@ -24,3 +24,6 @@ someFunc = do
             putStrLn $ "Best 5k " ++ (showSection $ fastestNk 5 (trackPoints route))
             putStrLn $ "Best 10k " ++ (showSection $ fastestNk 10 (trackPoints route))
             putStrLn $ "Best mile " ++ (showSection $ fastestNk 1.609344 (trackPoints route))
+            putStrLn "Pace chart v0.1b"
+            mapM putStrLn $ paceChart route 80 10
+            return ()

@@ -7,13 +7,15 @@ module Gpx
      ,Section
      ,secondsSince
      ,fastestNk
+     ,paceChart
     ) where
 
 import Text.XML.HXT.Core  -- The XML parser
 import Data.Time          -- For the UTCTime type
 import Data.Time.ISO8601  -- Parse the datetime format in gpx files
-
+import Data.List.Split
 import Debug.Trace as D
+import Data.List
 
 -- Make the XML code a bit more readable
 parseXML doc = readString [ withValidate no
@@ -32,8 +34,8 @@ data TrackPoint = TrackPoint
   } deriving (Eq, Show)
 
 type Distance = Float
-
 type Section = (Distance, NominalDiffTime)
+type Pace = NominalDiffTime
 
 makeSection :: TrackPoint -> TrackPoint -> Section
 makeSection a b = ((pointDistance a b), (secondsSince (time a) (time b) ))
@@ -113,23 +115,21 @@ pointDistance a b = earthDist (latitude a, longitude a) (latitude b, longitude b
 -- Implement a sliding window over route sections using recursion
 findNkInner :: Float -> [Section] -> Section -> Section -> [Section] -> Section
 findNkInner _ [] _ best _ = best
-findNkInner n secs (totalDist, totalTime) best store = if totalDist < n
-                                                        -- grab something from secs and move it to store updating everything
-                                                         then findNkInner n 
-                                                                          (tail secs) 
-                                                                          (addToTotal (totalDist, totalTime) (head secs)) 
-                                                                          best
-                                                                          ((head secs):store)
-                                                       else  --remove something from the store and throw it away, removing it from everything
-                                                           findNkInner n 
-                                                                      secs 
-                                                                      ( removeFromTotal (totalDist, totalTime) (last store) )
-                                                                      (theBest best (totalDist, totalTime)) 
-                                                                      (init store)
-                                                          where
-                                                            addToTotal (d,t) (sd, st) = (d+sd, t+st)
-                                                            theBest (d,t) (sd, st) = if (t<st) then (d,t) else (sd,st)
-                                                            removeFromTotal (d, t) (rd, rt) = (d-rd, t-rt)
+findNkInner n secs (totalDist, totalTime) best store
+           | totalDist < n = findNkInner n 
+                                         (tail secs) 
+                                         (addToTotal (totalDist, totalTime) (head secs)) 
+                                         best
+                                         ((head secs):store)
+           | otherwise =     findNkInner n 
+                                         secs 
+                                         ( removeFromTotal (totalDist, totalTime) (last store) )
+                                         (theBest best (totalDist, totalTime)) 
+                                         (init store)
+              where
+                addToTotal (d,t) (sd, st) = (d+sd, t+st)
+                theBest (d,t) (sd, st) = if (t<st) then (d,t) else (sd,st)
+                removeFromTotal (d, t) (rd, rt) = (d-rd, t-rt)
 
 -- Work on the sections between points
 fastestNk :: Float -> [TrackPoint] -> Section
@@ -149,4 +149,42 @@ getRoute :: String -> IO Route
 getRoute fileName = do
             pts <- getGPX fileName
             return $ Route pts (routeDistance pts) (routeTime pts)
-            
+
+paceFromSections :: [Section] -> Pace      
+paceFromSections s = (realToFrac (1.0/sumDist)) * sumTime
+                      where
+                        (sumDist, sumTime) = foldl (\(sd, st) (d,t) -> (sd+d,st+t)) (0,0) s     
+
+splitSectionAt :: [Section] -> Distance -> ([Section], [Section])
+splitSectionAt sections d = splitAtInner sections [] d
+                where              
+                  splitAtInner :: [Section] -> [Section] -> Distance -> ([Section], [Section])
+                  splitAtInner [] before d = (before, [])
+                  splitAtInner s@((sd,st):xs) before d
+                              | d == 0 = (before, s)
+                              | d < sd = splitAtInner ((splitAfter sd st d):xs) ((splitBefore sd st d):before) 0
+                              | otherwise = splitAtInner xs ((sd,st):before) (d - sd)
+                                where
+                                  splitBefore dd tt d = (d, tt * (realToFrac (d/dd)))
+                                  splitAfter  dd tt d = (dd-d, tt - (tt * (realToFrac (d/dd))))
+
+chunkRoute :: Route -> Distance -> [[Section]]
+chunkRoute r d = chunkSections sections d
+                  where
+                    sections = zipWith makeSection (trackPoints r) (tail (trackPoints r))
+                    chunkSections [] _ = []
+                    chunkSections cSecs cD = (fst $ splitSectionAt cSecs cD) : (chunkSections (snd $ splitSectionAt cSecs cD)) cD
+
+paceChunks :: Route -> Distance -> [NominalDiffTime]
+paceChunks r d = map paceFromSections sections
+                  where
+                    sections = chunkRoute r d
+
+paceChart :: Route -> Int -> Int -> [String]
+paceChart r w h = reverse . transpose $ map (\p -> concat $ (replicate p "#") ++ (replicate (h-p) " ")) heights
+                  where
+                    paces = paceChunks r (totalDistance r / (fromIntegral w))
+                    fastest = minimum paces
+                    slowest = maximum paces
+                    paceDivide = (fastest-slowest)/(fromIntegral h)
+                    heights = map (\p -> round ((p-slowest)/paceDivide)) paces
