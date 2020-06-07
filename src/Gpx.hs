@@ -8,11 +8,14 @@ module Gpx
      ,secondsSince
      ,fastestNk
      ,paceChart
+     ,showSection
+     ,showTime
     ) where
 
 import Text.XML.HXT.Core  -- The XML parser
 import Data.Time          -- For the UTCTime type
 import Data.Time.ISO8601  -- Parse the datetime format in gpx files
+import System.Time.Utils (renderSecs)
 import Data.List.Split
 import Debug.Trace as D
 import Data.List
@@ -181,10 +184,24 @@ paceChunks r d = map paceFromSections sections
                     sections = chunkRoute r d
 
 paceChart :: Route -> Int -> Int -> [String]
-paceChart r w h = reverse . transpose $ map (\p -> concat $ (replicate p "#") ++ (replicate (h-p) " ")) heights
+paceChart r w h = zipWith (++) (reverse . transpose $ map (\p -> concat $ (replicate p "#") ++ (replicate (h-p) " ")) heights) times
                   where
                     paces = paceChunks r (totalDistance r / (fromIntegral w))
                     fastest = minimum paces
                     slowest = maximum paces
                     paceDivide = (fastest-slowest)/(fromIntegral h)
                     heights = map (\p -> round ((p-slowest)/paceDivide)) paces
+                    times = map ((" " ++) . showTime) (timeSteps slowest fastest 10)
+                    timeSteps :: NominalDiffTime -> NominalDiffTime -> Int -> [NominalDiffTime]
+                    timeSteps f t s = timeStepsInner f t s s
+                                        where
+                                          timeStepsInner :: NominalDiffTime -> NominalDiffTime -> Int -> Int -> [NominalDiffTime]
+                                          timeStepsInner f t s c
+                                                        | c == 0 = []
+                                                        | otherwise = (f + (((t-f)/realToFrac s)*realToFrac c)) : timeStepsInner f t s (c-1)
+
+ -- Display functions
+showTime = renderSecs . round :: NominalDiffTime -> String
+
+showSection :: Section -> String
+showSection (d,t) = "(" ++ (show d) ++ "Km, " ++(showTime t) ++ ")"
