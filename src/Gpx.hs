@@ -10,6 +10,8 @@ module Gpx
      ,paceChart
      ,showSection
      ,showTime
+     ,extrapolate
+     ,showDistance
     ) where
 
 import Text.XML.HXT.Core  -- The XML parser
@@ -135,10 +137,13 @@ findNkInner n secs (totalDist, totalTime) best store
                 removeFromTotal (d, t) (rd, rt) = (d-rd, t-rt)
 
 -- Work on the sections between points
-fastestNk :: Float -> [TrackPoint] -> Section
-fastestNk n tp = findNkInner n sections (0,0) runfinity []
+fastestNk :: Float -> Route -> Section
+fastestNk n (Route tp _ _) = findNkInner n sections (0,0) runfinity []
                   where
                     sections = zipWith makeSection tp (tail tp)
+
+extrapolate :: Route -> Distance -> NominalDiffTime
+extrapolate (Route _ td tt) d = realToFrac $ ((fromIntegral (round tt)) / td) * d
 
 
 routeDistance :: [TrackPoint] -> Distance
@@ -205,3 +210,10 @@ showTime = renderSecs . round :: NominalDiffTime -> String
 
 showSection :: Section -> String
 showSection (d,t) = "(" ++ (show d) ++ "Km, " ++(showTime t) ++ ")"
+
+showDistance x 
+            | x == 1.609344 = "Mile"
+            | x == 16.09344 = "10 miles"
+            | x == 21.0975 = "Half Marathon"
+            | x == 42.195 = "Marathon"
+            | otherwise = (show x) ++ "k"
