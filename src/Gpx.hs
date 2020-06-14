@@ -12,6 +12,7 @@ module Gpx
      ,showTime
      ,extrapolate
      ,showDistance
+     ,buildAMap
     ) where
 
 import Text.XML.HXT.Core  -- The XML parser
@@ -21,6 +22,7 @@ import System.Time.Utils (renderSecs)
 import Data.List.Split
 import Debug.Trace as D
 import Data.List
+import Data.Map as Map (fromList, member)
 
 -- Make the XML code a bit more readable
 parseXML doc = readString [ withValidate no
@@ -38,6 +40,13 @@ data TrackPoint = TrackPoint
    ,time :: UTCTime
   } deriving (Eq, Show)
 
+data Route = Route
+  {
+      trackPoints :: [TrackPoint]
+      ,totalDistance :: Distance
+      ,totalTime :: NominalDiffTime
+  } deriving (Eq, Show)
+
 type Distance = Float
 type Section = (Distance, NominalDiffTime)
 type Pace = NominalDiffTime
@@ -52,13 +61,6 @@ lessTime (_,t1) (_,t2) = t1 < t2
 
 lessDistance :: Section -> Section -> Bool
 lessDistance (d1,_) (d2,_) = d1 < d2
-
-data Route = Route
-  {
-      trackPoints :: [TrackPoint]
-      ,totalDistance :: Distance
-      ,totalTime :: NominalDiffTime
-  }
 
 getTrackpoints = atTag "trkpt" >>>
   proc x -> do
@@ -205,7 +207,28 @@ paceChart r w h = zipWith (++) (reverse . transpose $ map (\p -> concat $ (repli
                                                         | c == 0 = []
                                                         | otherwise = (f + (((t-f)/realToFrac s)*realToFrac c)) : timeStepsInner f t s (c-1)
 
- -- Display functions
+buildAMap :: Route -> Int -> Int -> String
+buildAMap (Route tp td tt) w h = mapBuilder 0 0
+            where
+              mostWest = minimum (map longitude tp) 
+              mostEast = maximum (map longitude tp)
+              mostNorth = maximum (map latitude tp)
+              mostSouth = minimum (map latitude tp)
+              maxWidth = mostEast - mostWest
+              maxHeight = mostNorth - mostSouth
+              stepWidth  = maxWidth / (fromIntegral w)
+              stepHeight = maxHeight / (fromIntegral h)
+              pointToArray pt = ((round ((x-mostWest)/stepWidth)) + ( round ((y-mostSouth)/stepHeight) ) * w, "*") -- return dictionary key and character
+                          where
+                            x = longitude pt
+                            y = latitude pt
+              allPoints = Map.fromList $ map pointToArray tp -- Add these to a dictionary so it can be rapidly queried whilst building the map
+              mapBuilder x y
+                        | x < w = (if (Map.member (x+y*w) allPoints) then '*' else ' ') : (mapBuilder (x+1) y)
+                        | x == w && y < h = '\n' : (mapBuilder 0 (y+1))
+                        | otherwise = []
+
+-- Display functions
 showTime = renderSecs . round :: NominalDiffTime -> String
 
 showSection :: Section -> String

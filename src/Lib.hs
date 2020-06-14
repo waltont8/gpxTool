@@ -19,4 +19,6 @@ someFunc = do
                                 ) interestingDistances
             putStrLn "Pace chart v0.1b"
             mapM putStrLn $ paceChart route 80 10
+            putStrLn "\nA map"
+            putStrLn $ buildAMap route 80 20
             return ()
