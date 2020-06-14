@@ -208,7 +208,7 @@ paceChart r w h = zipWith (++) (reverse . transpose $ map (\p -> concat $ (repli
                                                         | otherwise = (f + (((t-f)/realToFrac s)*realToFrac c)) : timeStepsInner f t s (c-1)
 
 buildAMap :: Route -> Int -> Int -> String
-buildAMap (Route tp td tt) w h = mapBuilder 0 0
+buildAMap (Route tp td tt) w h = "+" ++ (take w (repeat '-')) ++ "+\n|" ++ mapBuilder 0 h ++ "+" ++ (take w (repeat '-')) ++ "+\n"
             where
               mostWest = minimum (map longitude tp) 
               mostEast = maximum (map longitude tp)
@@ -225,8 +225,8 @@ buildAMap (Route tp td tt) w h = mapBuilder 0 0
               allPoints = Map.fromList $ map pointToArray tp -- Add these to a dictionary so it can be rapidly queried whilst building the map
               mapBuilder x y
                         | x < w = (if (Map.member (x+y*w) allPoints) then '*' else ' ') : (mapBuilder (x+1) y)
-                        | x == w && y < h = '\n' : (mapBuilder 0 (y+1))
-                        | otherwise = []
+                        | x == w && y > 0 = "|\n|" ++ (mapBuilder 0 (y-1))
+                        | otherwise = "|\n"
 
 -- Display functions
 showTime = renderSecs . round :: NominalDiffTime -> String
