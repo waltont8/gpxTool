@@ -8,6 +8,9 @@ import Gpx
 
 interestingDistances = [1.0, 5.0, 10.0, 1.609344, 16.09344, 21.0975, 42.195]
 
+
+
+
 someFunc = do
             args <- getArgs
             route <- getRoute $ if length args > 0 then head args else "activity.gpx"

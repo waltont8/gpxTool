@@ -13,6 +13,7 @@ module Gpx
      ,extrapolate
      ,showDistance
      ,buildAMap
+     ,angle
     ) where
 
 import Text.XML.HXT.Core  -- The XML parser
@@ -22,12 +23,13 @@ import System.Time.Utils (renderSecs)
 import Data.List.Split
 import Debug.Trace as D
 import Data.List
-import Data.Map as Map (fromList, member)
+import Data.Map as Map (fromList, member, lookup)
 
 -- Make the XML code a bit more readable
-parseXML doc = readString [ withValidate no
+parseXML = readString [ withValidate no
                           , withRemoveWS yes
-                          ] doc
+                          ]
+
 atTag tag = deep (isElem >>> hasName tag)
 text = getChildren >>> getText
 textAtTag tag = atTag tag >>> text
@@ -83,11 +85,11 @@ badParseISO8601 s = case d of
 
 getGPX filename = do
   doc    <- readFile filename
-  xml    <- return $ parseXML doc
+  let xml = parseXML doc
   result <- runX (xml >>> getTrackpoints)
   case result of
     []  -> error "Unable to parse gpx data."
-    otherwise -> return result
+    _ -> return result
 
 secondsSince :: UTCTime -> UTCTime -> NominalDiffTime
 secondsSince t0 t1 =  diffUTCTime t1 t0
@@ -97,7 +99,7 @@ secondsSince t0 t1 =  diffUTCTime t1 t0
 -- The haversine of an angle.
 haversine :: Float -> Float
 haversine = (^ 2) . sin . (/ 2)
- 
+
 -- The approximate distance, in kilometers, between two points on Earth.
 -- The latitude and longtitude are assumed to be in degrees.
 earthDist :: (Float, Float) -> (Float, Float) -> Float
@@ -123,15 +125,15 @@ pointDistance a b = earthDist (latitude a, longitude a) (latitude b, longitude b
 findNkInner :: Float -> [Section] -> Section -> Section -> [Section] -> Section
 findNkInner _ [] _ best _ = best
 findNkInner n secs (totalDist, totalTime) best store
-           | totalDist < n = findNkInner n 
-                                         (tail secs) 
-                                         (addToTotal (totalDist, totalTime) (head secs)) 
+           | totalDist < n = findNkInner n
+                                         (tail secs)
+                                         (addToTotal (totalDist, totalTime) (head secs))
                                          best
                                          ((head secs):store)
-           | otherwise =     findNkInner n 
-                                         secs 
+           | otherwise =     findNkInner n
+                                         secs
                                          ( removeFromTotal (totalDist, totalTime) (last store) )
-                                         (theBest best (totalDist, totalTime)) 
+                                         (theBest best (totalDist, totalTime))
                                          (init store)
               where
                 addToTotal (d,t) (sd, st) = (d+sd, t+st)
@@ -160,14 +162,14 @@ getRoute fileName = do
             pts <- getGPX fileName
             return $ Route pts (routeDistance pts) (routeTime pts)
 
-paceFromSections :: [Section] -> Pace      
+paceFromSections :: [Section] -> Pace
 paceFromSections s = (realToFrac (1.0/sumDist)) * sumTime
                       where
-                        (sumDist, sumTime) = foldl (\(sd, st) (d,t) -> (sd+d,st+t)) (0,0) s     
+                        (sumDist, sumTime) = foldl (\(sd, st) (d,t) -> (sd+d,st+t)) (0,0) s
 
 splitSectionAt :: [Section] -> Distance -> ([Section], [Section])
-splitSectionAt sections d = splitAtInner sections [] d
-                where              
+splitSectionAt sections = splitAtInner sections []
+                where
                   splitAtInner :: [Section] -> [Section] -> Distance -> ([Section], [Section])
                   splitAtInner [] before d = (before, [])
                   splitAtInner s@((sd,st):xs) before d
@@ -179,7 +181,7 @@ splitSectionAt sections d = splitAtInner sections [] d
                                   splitAfter  dd tt d = (dd-d, tt - (tt * (realToFrac (d/dd))))
 
 chunkRoute :: Route -> Distance -> [[Section]]
-chunkRoute r d = chunkSections sections d
+chunkRoute r = chunkSections sections
                   where
                     sections = zipWith makeSection (trackPoints r) (tail (trackPoints r))
                     chunkSections [] _ = []
@@ -208,33 +210,59 @@ paceChart r w h = zipWith (++) (reverse . transpose $ map (\p -> concat $ (repli
                                                         | otherwise = (f + (((t-f)/realToFrac s)*realToFrac c)) : timeStepsInner f t s (c-1)
 
 buildAMap :: Route -> Int -> Int -> String
-buildAMap (Route tp td tt) w h = "+" ++ (take w (repeat '-')) ++ "+\n|" ++ mapBuilder 0 h ++ "+" ++ (take w (repeat '-')) ++ "+\n"
+buildAMap (Route tp td tt) w h = "+" ++ replicate w '-' ++ "+\n|" ++ mapBuilder 0 h ++ "+" ++ replicate w '-' ++ "+\n"
             where
-              mostWest = minimum (map longitude tp) 
-              mostEast = maximum (map longitude tp)
-              mostNorth = maximum (map latitude tp)
-              mostSouth = minimum (map latitude tp)
+              sections = zip tp (tail tp)
+              mostWest = minimum (map (longitude . fst) sections)
+              mostEast = maximum (map (longitude . fst) sections)
+              mostNorth = maximum (map (latitude . fst) sections)
+              mostSouth = minimum (map (latitude . fst) sections)
               maxWidth = mostEast - mostWest
               maxHeight = mostNorth - mostSouth
               stepWidth  = maxWidth / (fromIntegral w)
               stepHeight = maxHeight / (fromIntegral h)
-              pointToArray pt = ((round ((x-mostWest)/stepWidth)) + ( round ((y-mostSouth)/stepHeight) ) * w, "*") -- return dictionary key and character
+              pointToArray (pt, pt2) = ((round ((x-mostWest)/stepWidth)) + ( round ((y-mostSouth)/stepHeight) ) * w, angleToChar (angle pt pt2)) -- return dictionary key and character
                           where
                             x = longitude pt
                             y = latitude pt
-              allPoints = Map.fromList $ map pointToArray tp -- Add these to a dictionary so it can be rapidly queried whilst building the map
+              allPoints = Map.fromList $ map pointToArray sections -- Add these to a dictionary so it can be rapidly queried whilst building the map
               mapBuilder x y
-                        | x < w = (if (Map.member (x+y*w) allPoints) then '*' else ' ') : (mapBuilder (x+1) y)
+                        | x < w = (if (Map.member (x+y*w) allPoints) then (whatever $ Map.lookup (x+y*w) allPoints) else ' ') : (mapBuilder (x+1) y)
                         | x == w && y > 0 = "|\n|" ++ (mapBuilder 0 (y-1))
                         | otherwise = "|\n"
 
--- Display functions
+whatever :: Maybe a -> a
+whatever (Just a) = a
+whatever Nothing = error "whatever!"
+
+angle :: TrackPoint -> TrackPoint -> Float
+angle a b = (atan2 (x2-x1) (y2-y1)) * (180.0/3.14159) + (if x2 < x1 then 360.0 else 0.0)
+              where
+                x1 = longitude a
+                x2 = longitude b
+                y1 = latitude a
+                y2 = latitude b
+
+                -- Display functions
+
+angleToChar :: Float -> Char
+angleToChar f
+            | f > 337.5 || f <= 22.5 = '|'
+            | f > 157.5 && f <= 202.5 = '|'
+            | f > 67.5 && f <= 112.5 = '-'
+            | f > 247.5 && f <= 292.5 = '-'
+            | f > 22.5 && f <= 67.5 = '/'
+            | f > 202.5 && f <= 247.5 = '/'
+            | f > 112.5 && f <= 157.5 = '\\'
+            | f > 292.5 && f <= 337.5 = '\\'
+            | otherwise = '#'
+
 showTime = renderSecs . round :: NominalDiffTime -> String
 
 showSection :: Section -> String
 showSection (d,t) = "(" ++ (show d) ++ "Km, " ++(showTime t) ++ ")"
 
-showDistance x 
+showDistance x
             | x == 1.609344 = "Mile"
             | x == 16.09344 = "10 miles"
             | x == 21.0975 = "Half Marathon"
