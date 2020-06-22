@@ -231,6 +231,7 @@ buildAMap (Route tp td tt) w h = "+" ++ replicate w '-' ++ "+\n|" ++ mapBuilder 
                         | x == w && y > 0 = "|\n|" ++ (mapBuilder 0 (y-1))
                         | otherwise = "|\n"
 
+-- Yeah, I know
 whatever :: Maybe a -> a
 whatever (Just a) = a
 whatever Nothing = error "whatever!"
